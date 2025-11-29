@@ -1,0 +1,7 @@
+{
+  "name": "Simple EV Card",
+  "content_in_root": false,
+  "filename": "simple-ev-card.js",
+  "domains": ["lovelace"],
+  "render_readme": true
+}
