@@ -25,6 +25,11 @@ interface CarCardConfig extends LovelaceCardConfig {
   charger_status: string;
   calendar: string;
   car_charging_entity: string;
+
+  // optional: booleans or templates for location/mode
+  is_home?: boolean | string;
+  is_driving?: boolean | string;
+  is_away?: boolean | string;
 }
 
 class CarCard extends HTMLElement {
@@ -34,7 +39,6 @@ class CarCard extends HTMLElement {
   private _prevBattery: number | null = null;
   private _prevRange: number | null = null;
   private _prevIsCharging: boolean | null = null;
-  private _prevLocation: string | null = null;
   private _prevStatus: string | null = null;
   private _prevChargerStatus: string | null = null;
 
@@ -58,7 +62,6 @@ class CarCard extends HTMLElement {
       'car_charging_entity',
       'car_battery_entity',
       'car_cruising_range_entity',
-      'car_location_entity',
       'charger_connected_entity',
       'calendar',
     ];
@@ -240,8 +243,6 @@ class CarCard extends HTMLElement {
     const charger_status = this.config.charger_status ? hass.states[this.config.charger_status] : undefined; // text
 
     const isConnected = !!(connected && connected.state === "on");
-    const isHome = !!(car_location && car_location.state === "home");
-    const isParked = !!(car_location && car_location.state === "not_home");
     const chargerStatus = charger_status && charger_status.state ? charger_status.state : '';
 
     let isCharging; // boolean based on is_charging if available or on the charger status text
@@ -249,6 +250,51 @@ class CarCard extends HTMLElement {
       isCharging = is_charging.state === "on";
     } else {
       isCharging = ["Charging Normal", "Load Balancing Limited"].includes(chargerStatus);
+    }
+
+    // resolve is_home, is_driving, is_away from config or fallback
+    const resolveBool = (val: boolean | string | undefined): boolean | undefined => {
+      if (typeof val === 'boolean') return val;
+      if (typeof val === 'string') {
+        // Try to resolve as a Home Assistant entity_id
+        const entity = hass.states[val];
+        if (entity) {
+          // Accept on/off, true/false, 1/0
+          return entity.state === 'on' || entity.state === 'true' || entity.state === '1';
+        }
+        // If not an entity, try to parse as boolean string
+        if (val === 'true') return true;
+        if (val === 'false') return false;
+      }
+      return undefined;
+    };
+
+    let isHome = resolveBool(this.config.is_home);
+    let isDriving = resolveBool(this.config.is_driving);
+    let isAway = resolveBool(this.config.is_away);
+
+    // Car location by tracker
+    if (isHome === undefined || isDriving === undefined || isAway === undefined) {
+      if (car_location && car_location.state) {
+        if (isHome === undefined) isHome = car_location.state === "home";
+        if (isAway === undefined) isAway = car_location.state === "not_home";
+        if (isDriving === undefined) isDriving = !isHome && !isAway;
+      } else {
+        // If car_location is missing, fallback to false
+        if (isHome === undefined) isHome = false;
+        if (isAway === undefined) isAway = false;
+        if (isDriving === undefined) isDriving = false;
+      }
+    }
+
+    // Fallback: If no location info at all, but charger is connected, show charger visuals/button
+    const noLocationInfo =
+      this.config.is_home === undefined &&
+      this.config.is_driving === undefined &&
+      this.config.is_away === undefined &&
+      !this.config.car_location_entity;
+    if (noLocationInfo && isConnected) {
+      isHome = true;
     }
 
     let status = "Unknown";
@@ -268,16 +314,17 @@ class CarCard extends HTMLElement {
       }
     } else {
       this.querySelectorAll('.svg_charger').forEach(el => el.classList.add('hidden'));
+      if (this.chargeBtn) this.chargeBtn.classList.add('hidden');
     }
-    
-    if (!isHome && isParked) {
+
+    if (!isHome && isAway) {
       status = "Parked";
       this.querySelectorAll('.svg_parking').forEach(el => el.classList.remove('hidden'));
     } else {
       this.querySelectorAll('.svg_parking').forEach(el => el.classList.add('hidden'));
     }
 
-    if (!isHome && !isParked) {
+    if (!isHome && !isAway && isDriving) {
       status = "Moving";
       this.querySelectorAll('.svg_driver').forEach(el => el.classList.remove('hidden'));
       this.querySelectorAll('.svg_moving').forEach(el => el.classList.remove('hidden'));

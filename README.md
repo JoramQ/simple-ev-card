@@ -42,13 +42,46 @@ type: 'custom:car-card'
 car_charging_entity: switch.car_charger
 car_battery_entity: sensor.car_battery
 car_cruising_range_entity: sensor.car_range
-car_location_entity: device_tracker.my_car
+# car_location_entity: device_tracker.my_car  # Optional if using is_home/is_driving/is_away
+charger_connected_entity: binary_sensor.charger_connected
+is_charging_entity: binary_sensor.car_is_charging
+charger_status: sensor.charger_status
+calendar: calendar.work
+is_home: binary_sensor.car_is_home  # Optional, see below
+is_driving: binary_sensor.car_is_driving  # Optional, see below
+is_away: binary_sensor.car_is_away  # Optional, see below
+```
+
+## Example Lovelace YAML
+
+### 1. Device tracker (legacy, fallback)
+```yaml
+type: 'custom:car-card'
+car_charging_entity: switch.car_charger
+car_battery_entity: sensor.car_battery
+car_cruising_range_entity: sensor.car_range
+car_location_entity: device_tracker.my_car  # Required if not using is_home/is_driving/is_away
 charger_connected_entity: binary_sensor.charger_connected
 is_charging_entity: binary_sensor.car_is_charging
 charger_status: sensor.charger_status
 calendar: calendar.work
 ```
 
+### 2. Boolean sensors (when a device tracker is not available)
+```yaml
+type: 'custom:car-card'
+car_charging_entity: switch.car_charger
+car_battery_entity: sensor.car_battery
+car_cruising_range_entity: sensor.car_range
+
+charger_connected_entity: binary_sensor.charger_connected
+is_charging_entity: binary_sensor.car_is_charging
+charger_status: sensor.charger_status
+calendar: calendar.work
+is_home: binary_sensor.car_is_home
+is_driving: binary_sensor.car_is_driving
+is_away: binary_sensor.car_is_away
+```
 
 
 Feedback and contributions are welcome — please open issues or PRs.
