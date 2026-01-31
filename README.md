@@ -9,7 +9,7 @@ This repository contains a small Home Assistant Lovelace custom card for the sta
 Status
 -----------------
 - **Under active development.** This project is not yet considered stable or generally reusable.
-- **AI-assisted:** parts of this repository were created with the help of AI tools (ChatGPT and GitHub Copilot). AI was used to create images, scaffold files, suggest fixes, and refactor code — please review carefully before reuse.
+- **AI-assisted:** parts of this repository were created with the help of AI tools (ChatGPT, GitHub Copilot and Claude Code). AI was used to create images, scaffold files, suggest fixes, and refactor code — please review carefully before reuse.
 - **Use-case specific:** the current implementation and configuration are tailored to a specific setup and entity names. You will likely need to adapt entity IDs, sensor names and possibly the calendar API path to your Home Assistant instance.
 
 Where to look

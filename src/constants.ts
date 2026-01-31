@@ -28,6 +28,15 @@ export const BATTERY_LEVEL_RED = 20;
 export const BATTERY_LEVEL_YELLOW = 50;
 export const BATTERY_LEVEL_GREEN = 80;
 
+// Battery bar colors
+export const BATTERY_COLOR_GREEN = '#4CAF50';
+export const BATTERY_COLOR_YELLOW = '#FF9800';
+export const BATTERY_COLOR_RED = '#F44336';
+
+// Calendar retry settings
+export const MAX_CALENDAR_RETRIES = 3;
+export const CALENDAR_RETRY_DELAY_MS = 30000;
+
 // CSS class names
 export const CSS_CLASS_HIDDEN = 'hidden';
 export const CSS_CLASS_GREEN = 'green';
