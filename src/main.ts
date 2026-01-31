@@ -24,7 +24,12 @@ interface CarCardConfig extends LovelaceCardConfig {
   car_location_entity: string;
   charger_status: string;
   calendar: string;
-  car_charging_entity: string;
+
+  // Service call configuration for charging
+  car_charging_start_service: string;
+  car_charging_start_data: Record<string, unknown>;
+  car_charging_stop_service: string;
+  car_charging_stop_data: Record<string, unknown>;
 
   // optional: booleans or templates for location/mode
   is_home?: boolean | string;
@@ -35,6 +40,60 @@ interface CarCardConfig extends LovelaceCardConfig {
 class CarCard extends HTMLElement {
   private config!: CarCardConfig;
   private _hass!: HomeAssistant;
+  /**
+   * Centralizes location logic: returns { isHome, isAway, isDriving } booleans.
+   * - Prefers explicit booleans from config.
+   * - If not present, converts tracker entity to booleans.
+   * - If nothing is present and charger is connected, sets isHome true for charger visuals.
+   */
+  private _getLocationBooleans(hass: HomeAssistant, config: CarCardConfig, isConnected: boolean): { isHome: boolean; isAway: boolean; isDriving: boolean } {
+    // Helper to resolve a boolean or entity_id
+    const resolveBool = (val: boolean | string | undefined): boolean | undefined => {
+      if (typeof val === 'boolean') return val;
+      if (typeof val === 'string') {
+        const entity = hass.states[val];
+        if (entity) {
+          return entity.state === 'on' || entity.state === 'true' || entity.state === '1';
+        }
+        if (val === 'true') return true;
+        if (val === 'false') return false;
+      }
+      return undefined;
+    };
+
+    let isHome = resolveBool(config.is_home);
+    let isAway = resolveBool(config.is_away);
+    let isDriving = resolveBool(config.is_driving);
+
+    // If any are missing, try to infer from tracker
+    if (isHome === undefined || isAway === undefined || isDriving === undefined) {
+      const tracker = config.car_location_entity ? hass.states[config.car_location_entity] : undefined;
+      if (tracker && tracker.state) {
+        if (isHome === undefined) isHome = tracker.state === 'home';
+        if (isAway === undefined) isAway = tracker.state === 'not_home';
+        if (isDriving === undefined) isDriving = !isHome && !isAway;
+      }
+    }
+
+    // If still nothing, and charger is connected, treat as home for visuals
+    if (
+      isHome === undefined &&
+      isAway === undefined &&
+      isDriving === undefined &&
+      isConnected
+    ) {
+      isHome = true;
+      isAway = false;
+      isDriving = false;
+    }
+
+    // Fallback: all false if still undefined
+    return {
+      isHome: isHome ?? false,
+      isAway: isAway ?? false,
+      isDriving: isDriving ?? false,
+    };
+  }
 
   private _prevBattery: number | null = null;
   private _prevRange: number | null = null;
@@ -59,11 +118,9 @@ class CarCard extends HTMLElement {
     this.config = config;
 
     const required = [
-      'car_charging_entity',
       'car_battery_entity',
       'car_cruising_range_entity',
       'charger_connected_entity',
-      'calendar',
     ];
     const missing = required.filter((k) => !(this.config as Record<string, unknown>)[k]);
     if (missing.length) {
@@ -239,7 +296,6 @@ class CarCard extends HTMLElement {
     const is_charging = this.config.is_charging_entity ? hass.states[this.config.is_charging_entity] : undefined; // boolean (optional)
     const battery = this.config.car_battery_entity ? hass.states[this.config.car_battery_entity] : undefined; // battery percentage
     const cruising_range = this.config.car_cruising_range_entity ? hass.states[this.config.car_cruising_range_entity] : undefined; // range in km
-    const car_location = this.config.car_location_entity ? hass.states[this.config.car_location_entity] : undefined; // text (tracker)
     const charger_status = this.config.charger_status ? hass.states[this.config.charger_status] : undefined; // text
 
     const isConnected = !!(connected && connected.state === "on");
@@ -252,52 +308,17 @@ class CarCard extends HTMLElement {
       isCharging = ["Charging Normal", "Load Balancing Limited"].includes(chargerStatus);
     }
 
-    // resolve is_home, is_driving, is_away from config or fallback
-    const resolveBool = (val: boolean | string | undefined): boolean | undefined => {
-      if (typeof val === 'boolean') return val;
-      if (typeof val === 'string') {
-        // Try to resolve as a Home Assistant entity_id
-        const entity = hass.states[val];
-        if (entity) {
-          // Accept on/off, true/false, 1/0
-          return entity.state === 'on' || entity.state === 'true' || entity.state === '1';
-        }
-        // If not an entity, try to parse as boolean string
-        if (val === 'true') return true;
-        if (val === 'false') return false;
-      }
-      return undefined;
-    };
-
-    let isHome = resolveBool(this.config.is_home);
-    let isDriving = resolveBool(this.config.is_driving);
-    let isAway = resolveBool(this.config.is_away);
-
-    // Car location by tracker
-    if (isHome === undefined || isDriving === undefined || isAway === undefined) {
-      if (car_location && car_location.state) {
-        if (isHome === undefined) isHome = car_location.state === "home";
-        if (isAway === undefined) isAway = car_location.state === "not_home";
-        if (isDriving === undefined) isDriving = !isHome && !isAway;
-      } else {
-        // If car_location is missing, fallback to false
-        if (isHome === undefined) isHome = false;
-        if (isAway === undefined) isAway = false;
-        if (isDriving === undefined) isDriving = false;
-      }
-    }
-
-    // Fallback: If no location info at all, but charger is connected, show charger visuals/button
-    const noLocationInfo =
-      this.config.is_home === undefined &&
-      this.config.is_driving === undefined &&
-      this.config.is_away === undefined &&
-      !this.config.car_location_entity;
-    if (noLocationInfo && isConnected) {
-      isHome = true;
-    }
-
+    // Centralized location logic
+    const { isHome, isAway, isDriving } = this._getLocationBooleans(hass, this.config, isConnected);
     let status = "Unknown";
+
+    // Check if charging controls are configured
+    const hasChargingControls = !!(
+      this.config.car_charging_start_service &&
+      this.config.car_charging_start_data &&
+      this.config.car_charging_stop_service &&
+      this.config.car_charging_stop_data
+    );
 
     if (this._car_cableEl) this._car_cableEl.classList.toggle('hidden', !isConnected);
 
@@ -306,7 +327,7 @@ class CarCard extends HTMLElement {
       this.querySelectorAll('.svg_charger').forEach(el => el.classList.remove('hidden'));
       if (isConnected) {
         status = "Connected";
-        if (this.chargeBtn) this.chargeBtn.classList.remove('hidden');
+        if (this.chargeBtn) this.chargeBtn.classList.toggle('hidden', !hasChargingControls);
         if (this._displayinsideEl) this._displayinsideEl.classList.toggle('green', isCharging);
         status = isCharging ? "Charging" : "Connected";
       } else {
@@ -359,37 +380,25 @@ class CarCard extends HTMLElement {
         this._prevBattery = batteryLevel;
         this._prevRange = validRange ? cruisingRange : this._prevRange;
 
+        // Update battery bar width
         this.batteryBar.style.width = `${batteryLevel}%`;
-        this.batteryText.textContent = validRange ? `${batteryLevel}% / ${cruisingRange} km` : `${batteryLevel}%`;
 
-        if (batteryLevel > 80) {
-          this.batteryBar.style.backgroundColor = "green";
-        } else if (batteryLevel > 50) {
-          this.batteryBar.style.backgroundColor = "orange";
+        // Update battery text
+        if (validRange) {
+          this.batteryText.textContent = `${batteryLevel}% (${cruisingRange} km)`;
         } else {
-          this.batteryBar.style.backgroundColor = "red";
+          this.batteryText.textContent = `${batteryLevel}%`;
+        }
+
+        // Update battery bar color based on level
+        if (batteryLevel > 50) {
+          this.batteryBar.style.backgroundColor = '#4CAF50'; // green
+        } else if (batteryLevel > 20) {
+          this.batteryBar.style.backgroundColor = '#FF9800'; // orange
+        } else {
+          this.batteryBar.style.backgroundColor = '#F44336'; // red
         }
       }
-    }
-
-    // Calendar events
-    if (!this._carEventFetched && this.eventEl && this.config.calendar) {
-      this._carEventFetched = true;
-      this.getCarEventToday(hass, this.config.calendar).then(() => {
-        if (this._carEvent && this.statusEl) {
-          const carEvent = this._carEvent as Record<string, unknown> & { start?: string; duration?: string };
-          const startTime = new Date(carEvent.start as string);
-
-          const formatter = new Intl.DateTimeFormat(this._hass.language || 'default', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false, // 24-hour format
-          });
-          const formattedStart = formatter.format(startTime);
-          this.eventEl.textContent = `Charge planned at ${formattedStart} for ${carEvent.duration}h`;
-          this.eventEl.classList.remove("hidden");
-        }
-      });
     }
 
     // Charger status
@@ -397,6 +406,19 @@ class CarCard extends HTMLElement {
       this._prevChargerStatus = chargerStatus;
       this.chargerEl.classList.remove("hidden");
       this.chargerEl.textContent = chargerStatus || '';
+    }
+
+    // Calendar event fetching
+    if (!this._carEventFetched && this.eventEl && this.config.calendar) {
+      this._carEventFetched = true;
+      this.getCarEventToday(hass, this.config.calendar).then(() => {
+        if (this._carEvent && this.eventEl) {
+          this.eventEl.classList.remove('hidden');
+          const summary = this._carEvent.summary || 'Event';
+          const duration = this._carEvent.duration || '?';
+          this.eventEl.textContent = `${summary} (${duration}h)`;
+        }
+      });
     }
   }
 
@@ -427,14 +449,27 @@ class CarCard extends HTMLElement {
   }
 
   private _handleChargeToggle(): void {
-    if (!this._hass || !this.config?.car_charging_entity) {
-      console.warn('Cannot toggle charging: hass or car_charging_entity not available');
+    if (!this._hass) {
+      console.warn('Cannot toggle charging: hass not available');
       return;
     }
-    const service = this._prevIsCharging ? "turn_off" : "turn_on";
-    this._hass.callService("switch", service, {
-      entity_id: this.config.car_charging_entity,
-    });
+    if (this._prevIsCharging) {
+      // Stop charging
+      if (this.config.car_charging_stop_service && this.config.car_charging_stop_data) {
+        const [domain, service] = this.config.car_charging_stop_service.split('.');
+        this._hass.callService(domain, service, this.config.car_charging_stop_data);
+      } else {
+        console.warn('car_charging_stop_service or car_charging_stop_data not configured');
+      }
+    } else {
+      // Start charging
+      if (this.config.car_charging_start_service && this.config.car_charging_start_data) {
+        const [domain, service] = this.config.car_charging_start_service.split('.');
+        this._hass.callService(domain, service, this.config.car_charging_start_data);
+      } else {
+        console.warn('car_charging_start_service or car_charging_start_data not configured');
+      }
+    }
   }
 
   getCardSize(): number {

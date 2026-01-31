@@ -37,9 +37,9 @@ Manual installation
 
 Usage
 -----------------
+
 ```yaml
 type: 'custom:car-card'
-car_charging_entity: switch.car_charger
 car_battery_entity: sensor.car_battery
 car_cruising_range_entity: sensor.car_range
 # car_location_entity: device_tracker.my_car  # Optional if using is_home/is_driving/is_away
@@ -50,14 +50,22 @@ calendar: calendar.work
 is_home: binary_sensor.car_is_home  # Optional, see below
 is_driving: binary_sensor.car_is_driving  # Optional, see below
 is_away: binary_sensor.car_is_away  # Optional, see below
+
+# Service call configuration for charging
+car_charging_start_service: script.turn_on
+car_charging_start_data:
+	entity_id: script.start_charging
+car_charging_stop_service: script.turn_on
+car_charging_stop_data:
+	entity_id: script.stop_charging
 ```
 
 ## Example Lovelace YAML
 
+
 ### 1. Device tracker (legacy, fallback)
 ```yaml
 type: 'custom:car-card'
-car_charging_entity: switch.car_charger
 car_battery_entity: sensor.car_battery
 car_cruising_range_entity: sensor.car_range
 car_location_entity: device_tracker.my_car  # Required if not using is_home/is_driving/is_away
@@ -65,15 +73,20 @@ charger_connected_entity: binary_sensor.charger_connected
 is_charging_entity: binary_sensor.car_is_charging
 charger_status: sensor.charger_status
 calendar: calendar.work
+car_charging_start_service: switch.turn_on
+car_charging_start_data:
+	entity_id: switch.car_charger
+car_charging_stop_service: switch.turn_off
+car_charging_stop_data:
+	entity_id: switch.car_charger
 ```
+
 
 ### 2. Boolean sensors (when a device tracker is not available)
 ```yaml
 type: 'custom:car-card'
-car_charging_entity: switch.car_charger
 car_battery_entity: sensor.car_battery
 car_cruising_range_entity: sensor.car_range
-
 charger_connected_entity: binary_sensor.charger_connected
 is_charging_entity: binary_sensor.car_is_charging
 charger_status: sensor.charger_status
@@ -81,6 +94,12 @@ calendar: calendar.work
 is_home: binary_sensor.car_is_home
 is_driving: binary_sensor.car_is_driving
 is_away: binary_sensor.car_is_away
+car_charging_start_service: script.turn_on
+car_charging_start_data:
+	entity_id: script.start_charging
+car_charging_stop_service: script.turn_on
+car_charging_stop_data:
+	entity_id: script.stop_charging
 ```
 
 
