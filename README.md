@@ -58,7 +58,15 @@ car_charging_start_data:
 car_charging_stop_service: script.turn_on
 car_charging_stop_data:
 	entity_id: script.stop_charging
+
+# Charging power display (optional)
+car_charging_power_entity: sensor.charger_power  # Shows kW and fill effect when charging
+max_charging_power: 11  # Max power for scaling fill effect (default: 11)
 ```
+
+### Charging Power Display
+
+When `car_charging_power_entity` is configured, the card shows the current charging power in kW above the charger icon while actively charging. The charger display also fills proportionally based on `current_power / max_charging_power`. Adjust `max_charging_power` if using a higher-capacity charger (e.g., 22 kW for public AC chargers).
 
 ## Example Lovelace YAML
 

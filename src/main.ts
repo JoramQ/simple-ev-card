@@ -56,6 +56,10 @@ interface CarCardConfig extends LovelaceCardConfig {
   car_charging_stop_service?: string;
   car_charging_stop_data?: Record<string, unknown>;
 
+  // Charging power display
+  car_charging_power_entity?: string;  // Entity providing charging power in kW
+  max_charging_power?: number;         // Max power for scaling fill (default: 11)
+
   // optional: booleans or templates for location/mode
   is_home?: boolean | string;
   is_driving?: boolean | string;
@@ -72,6 +76,7 @@ class CarCard extends HTMLElement {
   private _prevIsCharging: boolean | null = null;
   private _prevStatus: string | null = null;
   private _prevChargerStatus: string | null = null;
+  private _prevChargingPower: number | null = null;
 
   // Calendar state
   private _carEvent: CalendarEvent | null = null;
@@ -86,8 +91,9 @@ class CarCard extends HTMLElement {
   private eventEl: HTMLElement | null = null;
   private chargerEl: HTMLElement | null = null;
   private errorEl: HTMLElement | null = null;
-  private displayInsideEl: HTMLElement | null = null;
+  private displayInsideEl: SVGPathElement | null = null;
   private cableEl: HTMLElement | null = null;
+  private chargingPowerTextEl: SVGTextElement | null = null;
 
   // Cached SVG element references
   private _svgChargerEls: NodeListOf<Element> | null = null;
@@ -251,6 +257,7 @@ class CarCard extends HTMLElement {
       'car_location_entity',
       'car_charging_start_service',
       'car_charging_stop_service',
+      'car_charging_power_entity',
     ];
     for (const field of stringFields) {
       const value = (this.config as Record<string, unknown>)[field];
@@ -273,6 +280,13 @@ class CarCard extends HTMLElement {
       const value = (this.config as Record<string, unknown>)[serviceField] as string | undefined;
       if (value && !value.includes('.')) {
         throw new Error(`Config field "${serviceField}" must be in format "domain.service", got "${value}"`);
+      }
+    }
+
+    // Validate max_charging_power is a positive number
+    if (this.config.max_charging_power !== undefined) {
+      if (typeof this.config.max_charging_power !== 'number' || this.config.max_charging_power <= 0) {
+        throw new Error(`Config field "max_charging_power" must be a positive number, got ${this.config.max_charging_power}`);
       }
     }
 
@@ -369,6 +383,15 @@ class CarCard extends HTMLElement {
           svg .green {
             fill: #62e027ff !important;
           }
+          svg .display_inside {
+            transition: clip-path 0.5s ease;
+          }
+          svg .charging-power-text {
+            font-size: 10px;
+            font-weight: bold;
+            fill: var(--primary-text-color);
+            text-anchor: middle;
+          }
           svg .svg_charger,
           svg .svg_parking,
           svg .svg_carbody,
@@ -403,10 +426,11 @@ class CarCard extends HTMLElement {
         <div class="carcard_container">
           <svg viewBox="0 0 400 200" preserveAspectRatio="none" class="carcard_image">
             <path class="svg_charger body hidden" d="M0,0 L35,0 L41,3 L46,9 L47,12 L47,131 L52,131 L54,133 L54,144 L52,146 L-18,146 L-19,145 L-19,133 L-16,131 L-12,131 L-12,11 L-8,5 L-3,1 Z M1,6 L-5,10 L-7,15 L-7,131 L41,131 L41,13 L36,7 L34,6 Z M-13,137 L-13,141 L48,141 L48,137 Z " transform="translate(331,47)"/>
-            <path class="svg_charger display_inside hidden" style="fill: transparent" d="M0,6 L3,35 L26,35 L26,6 Z " transform="translate(334,64)"/>
-            <path class="svg_charger display hidden" d="M0,0 L28,0 L32,4 L32,37 L30,40 L27,41 L1,41 L-3,38 L-3,3 Z M3,6 L3,35 L26,35 L26,6 Z " transform="translate(334,64)"/>
-            <path class="svg_charger icon hidden" d="M0,0 L2,0 L1,7 L5,7 L4,12 L-1,18 L-3,17 L-2,11 L-6,11 L-5,6 Z " transform="translate(349,76)"/>
+            <path class="svg_charger display_inside hidden" style="fill: transparent" d="M0,6 L3,35 L26,35 L26,6 Z " transform="translate(334,58)"/>
+            <path class="svg_charger display hidden" d="M0,0 L28,0 L32,4 L32,37 L30,40 L27,41 L1,41 L-3,38 L-3,3 Z M3,6 L3,35 L26,35 L26,6 Z " transform="translate(334,58)"/>
+            <path class="svg_charger icon hidden" d="M0,0 L2,0 L1,7 L5,7 L4,12 L-1,18 L-3,17 L-2,11 L-6,11 L-5,6 Z " transform="translate(349,70)"/>
             <path class="svg_charger connector hidden" d="M0,0 L7,0 L11,4 L12,6 L12,15 L8,20 L-1,20 L-5,16 L-5,4 Z M2,6 L1,7 L1,14 L5,15 L6,14 L6,7 Z " transform="translate(345,116)"/>
+            <text class="charging-power-text hidden" id="charging_power_text" x="351" y="110"></text>
 
             <path class="svg_parking hidden" style="scale:0.8" d="M0,0 L52,0 L56,4 L57,6 L57,56 L54,61 L51,63 L29,64 L29,81 L28,91 L24,88 L23,63 L0,63 L-4,59 L-5,56 L-5,5 Z M5,4 L0,7 L0,55 L2,58 L49,58 L52,55 L52,8 L50,5 L45,4 Z " transform="translate(322,18)"/>
             <path class="svg_parking hidden" style="scale:0.8" d="M0,0 L15,0 L22,3 L25,6 L26,14 L23,19 L19,22 L7,23 L6,34 L0,34 L-1,1 Z M7,6 L6,7 L6,16 L7,17 L15,17 L19,13 L18,8 L16,6 Z " transform="translate(337,32)"/>
@@ -451,8 +475,9 @@ class CarCard extends HTMLElement {
     this.eventEl = this.querySelector("#car_event");
     this.chargerEl = this.querySelector("#charger_status");
     this.errorEl = this.querySelector("#card_error");
-    this.displayInsideEl = this.querySelector('.display_inside');
+    this.displayInsideEl = this.querySelector('.display_inside') as SVGPathElement | null;
     this.cableEl = this.querySelector('.svg_cable');
+    this.chargingPowerTextEl = this.querySelector('#charging_power_text') as SVGTextElement | null;
 
     // Cache SVG element references
     this._svgChargerEls = this.querySelectorAll('.svg_charger');
@@ -482,6 +507,7 @@ class CarCard extends HTMLElement {
     const cruising_range = this.config.car_cruising_range_entity ? hass.states[this.config.car_cruising_range_entity] : undefined;
     const is_charging = this.config.is_charging_entity ? hass.states[this.config.is_charging_entity] : undefined;
     const charger_status = this.config.charger_status ? hass.states[this.config.charger_status] : undefined;
+    const charging_power = this.config.car_charging_power_entity ? hass.states[this.config.car_charging_power_entity] : undefined;
 
     // Check required entities exist
     if (!connected) {
@@ -544,9 +570,57 @@ class CarCard extends HTMLElement {
       this.chargeBtn.classList.toggle('hidden', !showButton);
     }
 
-    // Charging indicator
-    if (this.displayInsideEl) {
+    // Charging indicator and power display
+    // Only use simple green toggle if car_charging_power_entity is NOT configured
+    // Otherwise, the power-based fill effect handles the display
+    if (this.displayInsideEl && !this.config.car_charging_power_entity) {
       this.displayInsideEl.classList.toggle('green', isCharging);
+    }
+
+    // Charging power display (kW text and fill effect)
+    if (this.config.car_charging_power_entity) {
+      // Remove green class since we're using power-based fill
+      if (this.displayInsideEl) {
+        this.displayInsideEl.classList.remove('green');
+      }
+      const chargingPowerRaw = charging_power?.state;
+      const chargingPower = this._isValidState(chargingPowerRaw) ? Number(chargingPowerRaw) : null;
+      const validPower = chargingPower !== null && !Number.isNaN(chargingPower) && chargingPower > 0;
+      // Show power if we have a valid power reading > 0 (power > 0 implies charging)
+      const showPower = validPower;
+
+      // Update kW text
+      if (this.chargingPowerTextEl) {
+        if (showPower && chargingPower !== null) {
+          this.chargingPowerTextEl.classList.remove('hidden');
+          if (this._prevChargingPower !== chargingPower) {
+            this._prevChargingPower = chargingPower;
+            this.chargingPowerTextEl.textContent = `${chargingPower.toFixed(1)} kW`;
+          }
+        } else {
+          this.chargingPowerTextEl.classList.add('hidden');
+          this._prevChargingPower = null;
+        }
+      }
+
+      // Update fill effect on display_inside
+      if (this.displayInsideEl && showPower && chargingPower !== null) {
+        const maxPower = this.config.max_charging_power ?? 11;
+        const fillPercent = Math.min(100, (chargingPower / maxPower) * 100);
+        // Use clip-path to show partial fill from bottom up
+        if (fillPercent >= 100) {
+          // At full power, remove clip-path to avoid rendering artifacts
+          this.displayInsideEl.style.clipPath = '';
+        } else {
+          const clipTop = 100 - fillPercent;
+          this.displayInsideEl.style.clipPath = `inset(${clipTop}% 0 0 0)`;
+        }
+        this.displayInsideEl.style.fill = '#62e027ff';
+      } else if (this.displayInsideEl) {
+        // Reset fill when not charging or no valid power
+        this.displayInsideEl.style.clipPath = '';
+        this.displayInsideEl.style.fill = 'transparent';
+      }
     }
 
     // Parking visibility

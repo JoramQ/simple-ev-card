@@ -43,6 +43,39 @@ docker run --rm ev-card-builder npm run lint                     # lint only
 docker run -it --rm -v "$PWD":/app ev-card-builder sh            # interactive shell
 ```
 
+## Releasing
+
+To create a new release:
+
+1. Update version in `package.json` (use 2-digit format: `0.1`, `0.2`, `1.0`)
+
+2. Build the project:
+   ```bash
+   ./test_and_build.sh
+   ```
+
+3. Commit the changes:
+   ```bash
+   git add package.json dist/simple-ev-card.js
+   git commit -m "Release vX.Y"
+   ```
+
+4. Create and push the version tag:
+   ```bash
+   git tag -a vX.Y -m "Release vX.Y"
+   git push origin main
+   git push origin vX.Y
+   ```
+
+5. Create GitHub Release:
+   - Go to https://github.com/JoramQ/simple-ev-card/releases/new
+   - Select the `vX.Y` tag
+   - Title: `vX.Y`
+   - Click "Generate release notes" or write your own
+   - Drag `dist/simple-ev-card.js` into the assets area
+   - Click "Publish release"
+
+
 ## Project Structure
 
 - `src/main.ts` — single-file implementation: injects `innerHTML` in `setConfig()` and applies reactive updates in `set hass(hass)`
@@ -85,11 +118,15 @@ car_charging_start_data:
 car_charging_stop_service: switch.turn_off
 car_charging_stop_data:
   entity_id: switch.car_charger
+
+# Charging power display (optional - shows kW and fill effect)
+car_charging_power_entity: sensor.charger_power
+max_charging_power: 11  # Default: 11, adjust for higher power chargers (e.g., 22)
 ```
 
 ## Notes
 
 - Required config fields: `car_battery_entity`, `car_cruising_range_entity`, `charger_connected_entity`
-- Optional: `calendar`, charging service config, location config
+- Optional: `calendar`, charging service config, location config, charging power display
 - Visual state is controlled by CSS classes on inline SVG elements (see `src/main.ts` for class names such as `.svg_charger`, `.svg_parking`, `.svg_driver`, `.svg_moving`, `.svg_cable`)
 - Calendar fetching uses the Home Assistant `callApi` endpoint `calendar/<entity>`; validate this against your HA version if events don't appear
