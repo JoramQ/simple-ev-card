@@ -37,6 +37,9 @@ export const BATTERY_COLOR_RED = '#F44336';
 export const MAX_CALENDAR_RETRIES = 3;
 export const CALENDAR_RETRY_DELAY_MS = 30000;
 
+// Charge toggle timeout (ms) - max wait for state change after pressing button
+export const CHARGE_TOGGLE_TIMEOUT_MS = 60000;
+
 // CSS class names
 export const CSS_CLASS_HIDDEN = 'hidden';
 export const CSS_CLASS_GREEN = 'green';

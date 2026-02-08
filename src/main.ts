@@ -24,6 +24,7 @@ import {
   CHARGING_STATUSES,
   MAX_CALENDAR_RETRIES,
   CALENDAR_RETRY_DELAY_MS,
+  CHARGE_TOGGLE_TIMEOUT_MS,
   STATUS_HOME,
   STATUS_CONNECTED,
   STATUS_CHARGING,
@@ -82,6 +83,10 @@ class CarCard extends HTMLElement {
   private _carEvent: CalendarEvent | null = null;
   private _calendarFetchAttempts = 0;
   private _calendarLastFetchTime = 0;
+
+  // Charge toggle pending state
+  private _chargePending = false;
+  private _chargePendingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   // Element references
   private statusEl: HTMLElement | null = null;
@@ -374,6 +379,15 @@ class CarCard extends HTMLElement {
           .charge_button:hover {
             background-color: #1976D2;
           }
+          .charge_button.pending {
+            background-color: #FF9800;
+            cursor: wait;
+            animation: pulse 1.5s ease-in-out infinite;
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+          }
           #car_event {
             text-align: center;
           }
@@ -640,6 +654,10 @@ class CarCard extends HTMLElement {
     // Charging button text
     if (this._prevIsCharging !== isCharging) {
       this._prevIsCharging = isCharging;
+      // State changed - clear pending feedback
+      if (this._chargePending) {
+        this._setChargePending(false);
+      }
       if (this.chargeBtn) {
         this.chargeBtn.textContent = isCharging ? "Stop Charging" : "Start Charging";
       }
@@ -781,14 +799,30 @@ class CarCard extends HTMLElement {
 
   // ==================== Charging Control ====================
 
+  private _setChargePending(pending: boolean): void {
+    this._chargePending = pending;
+    if (this.chargeBtn) {
+      this.chargeBtn.classList.toggle('pending', pending);
+      this.chargeBtn.disabled = pending;
+    }
+    if (!pending && this._chargePendingTimeoutId !== null) {
+      clearTimeout(this._chargePendingTimeoutId);
+      this._chargePendingTimeoutId = null;
+    }
+  }
+
   private async _handleChargeToggle(): Promise<void> {
     if (!this._hass) {
       this._showError('Cannot toggle charging: Home Assistant not available');
       return;
     }
 
+    if (this._chargePending) return;
+
+    const wasCharging = this._prevIsCharging;
+
     try {
-      if (this._prevIsCharging) {
+      if (wasCharging) {
         // Stop charging
         const parsed = this._parseServiceCall(this.config.car_charging_stop_service);
         if (!parsed) {
@@ -799,6 +833,8 @@ class CarCard extends HTMLElement {
           this._showError('Stop charging data not configured');
           return;
         }
+        this._setChargePending(true);
+        if (this.chargeBtn) this.chargeBtn.textContent = 'Stopping...';
         await this._hass.callService(parsed.domain, parsed.service, this.config.car_charging_stop_data);
       } else {
         // Start charging
@@ -811,10 +847,22 @@ class CarCard extends HTMLElement {
           this._showError('Start charging data not configured');
           return;
         }
+        this._setChargePending(true);
+        if (this.chargeBtn) this.chargeBtn.textContent = 'Starting...';
         await this._hass.callService(parsed.domain, parsed.service, this.config.car_charging_start_data);
       }
+
+      // Start timeout - clear pending state after max wait
+      this._chargePendingTimeoutId = setTimeout(() => {
+        this._setChargePending(false);
+        // Restore button text based on current state
+        if (this.chargeBtn) {
+          this.chargeBtn.textContent = this._prevIsCharging ? 'Stop Charging' : 'Start Charging';
+        }
+      }, CHARGE_TOGGLE_TIMEOUT_MS);
     } catch (error) {
-      const action = this._prevIsCharging ? 'stop' : 'start';
+      this._setChargePending(false);
+      const action = wasCharging ? 'stop' : 'start';
       this._showError(`Failed to ${action} charging: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
